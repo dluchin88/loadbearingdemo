@@ -1,7 +1,7 @@
 {
-  "name": "quiet-hours-valet",
+  "name": "texas-wholesaling-expo",
   "version": "1.0.0",
-  "description": "Quiet Hours Valet - AI-Powered Apartment Valet Trash Service Management Platform",
+  "description": "Texas Wholesaling Cold Call Command Center - 11 AI Agents, 14 Counties, 320 Calls/Day",
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
