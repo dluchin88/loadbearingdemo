@@ -1,24 +1,58 @@
 // store/useAppStore.ts
 // ─────────────────────────────────────────────────────────────────────────────
-// QUIET HOURS VALET — Global State Management (Zustand)
-// Single store managing all app state: auth, agents, clients, routes,
-// pipeline, notifications, and UI state. Uses Zustand for lightweight,
-// performant state management with no boilerplate.
+// TEXAS WHOLESALING — Global State Management (Zustand)
+//
+// Single store managing all app state for the wholesaling operation:
+// - Auth (Domonique as owner)
+// - 11 AI Agents (Zara + 8 Cold Callers + Luna + Blaze)
+// - Leads pipeline (raw → warm → hot → deal)
+// - Deals (under contract, in disposition, closed)
+// - Cash Buyers list
+// - Call logs
+// - Notifications
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { create } from "zustand";
 import type {
-  User,
   AIAgent,
-  ApartmentComplex,
-  ServiceRoute,
-  PipelineLead,
+  AgentRole,
+  AgentStatus,
   CallLog,
-  AppNotification,
+} from "../services/agents/vapiService";
+import type {
+  Lead,
+  Deal,
+  Buyer,
   DashboardStats,
-  RevenueMetrics,
-  Invoice,
-} from "../types";
+} from "../services/api/supabaseService";
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TYPE DEFINITIONS
+// ══════════════════════════════════════════════════════════════════════════════
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  role: "owner" | "admin" | "viewer";
+  preferences: {
+    theme: "dark" | "light";
+    notificationsEnabled: boolean;
+    dailySummaryTime: string;
+  };
+}
+
+export interface AppNotification {
+  id: string;
+  type: string;
+  title: string;
+  body: string;
+  priority: "low" | "medium" | "high" | "urgent";
+  read: boolean;
+  data?: Record<string, any>;
+  createdAt: string;
+}
 
 // ══════════════════════════════════════════════════════════════════════════════
 // STORE INTERFACE
@@ -32,37 +66,45 @@ interface AppState {
   setUser: (user: User | null) => void;
   setLoading: (loading: boolean) => void;
 
-  // ── AI Agents ───────────────────────────────────────────────────────────
+  // ── AI Agents (11 total) ────────────────────────────────────────────────
   agents: AIAgent[];
   selectedAgent: AIAgent | null;
   setAgents: (agents: AIAgent[]) => void;
   updateAgent: (agentId: string, updates: Partial<AIAgent>) => void;
   setSelectedAgent: (agent: AIAgent | null) => void;
   toggleAgentStatus: (agentId: string) => void;
+  getAgentsByRole: (role: AgentRole) => AIAgent[];
+  getColdCallers: () => AIAgent[];
 
-  // ── Clients / Apartment Complexes ───────────────────────────────────────
-  clients: ApartmentComplex[];
-  selectedClient: ApartmentComplex | null;
-  setClients: (clients: ApartmentComplex[]) => void;
-  addClient: (client: ApartmentComplex) => void;
-  updateClient: (clientId: string, updates: Partial<ApartmentComplex>) => void;
-  setSelectedClient: (client: ApartmentComplex | null) => void;
+  // ── Leads Pipeline ──────────────────────────────────────────────────────
+  leads: Lead[];
+  selectedLead: Lead | null;
+  setLeads: (leads: Lead[]) => void;
+  addLead: (lead: Lead) => void;
+  updateLead: (leadId: string, updates: Partial<Lead>) => void;
+  setSelectedLead: (lead: Lead | null) => void;
+  getLeadsByStage: (stage: string) => Lead[];
+  getLeadsByCounty: (county: string) => Lead[];
+  getHotLeads: () => Lead[];
 
-  // ── Service Routes ──────────────────────────────────────────────────────
-  routes: ServiceRoute[];
-  activeRoute: ServiceRoute | null;
-  setRoutes: (routes: ServiceRoute[]) => void;
-  setActiveRoute: (route: ServiceRoute | null) => void;
-  updateRouteStop: (routeId: string, stopOrder: number, updates: any) => void;
+  // ── Deals ───────────────────────────────────────────────────────────────
+  deals: Deal[];
+  selectedDeal: Deal | null;
+  setDeals: (deals: Deal[]) => void;
+  addDeal: (deal: Deal) => void;
+  updateDeal: (dealId: string, updates: Partial<Deal>) => void;
+  setSelectedDeal: (deal: Deal | null) => void;
+  getActiveDeals: () => Deal[];
+  getPipelineValue: () => number;
 
-  // ── Pipeline / CRM ──────────────────────────────────────────────────────
-  pipeline: PipelineLead[];
-  selectedLead: PipelineLead | null;
-  setPipeline: (leads: PipelineLead[]) => void;
-  addLead: (lead: PipelineLead) => void;
-  updateLead: (leadId: string, updates: Partial<PipelineLead>) => void;
-  setSelectedLead: (lead: PipelineLead | null) => void;
-  moveLeadStage: (leadId: string, newStage: PipelineLead["stage"]) => void;
+  // ── Cash Buyers ─────────────────────────────────────────────────────────
+  buyers: Buyer[];
+  selectedBuyer: Buyer | null;
+  setBuyers: (buyers: Buyer[]) => void;
+  addBuyer: (buyer: Buyer) => void;
+  updateBuyer: (buyerId: string, updates: Partial<Buyer>) => void;
+  setSelectedBuyer: (buyer: Buyer | null) => void;
+  getActiveBuyers: () => Buyer[];
 
   // ── Call Logs ───────────────────────────────────────────────────────────
   callLogs: CallLog[];
@@ -70,6 +112,8 @@ interface AppState {
   setCallLogs: (logs: CallLog[]) => void;
   addCallLog: (log: CallLog) => void;
   setLiveCall: (call: CallLog | null) => void;
+  getTodaysCalls: () => CallLog[];
+  getCallsByAgent: (agentId: string) => CallLog[];
 
   // ── Notifications ───────────────────────────────────────────────────────
   notifications: AppNotification[];
@@ -79,13 +123,9 @@ interface AppState {
   markAllRead: () => void;
   clearNotifications: () => void;
 
-  // ── Dashboard & Financials ──────────────────────────────────────────────
+  // ── Dashboard Stats ─────────────────────────────────────────────────────
   dashboardStats: DashboardStats | null;
-  revenueMetrics: RevenueMetrics | null;
-  invoices: Invoice[];
   setDashboardStats: (stats: DashboardStats) => void;
-  setRevenueMetrics: (metrics: RevenueMetrics) => void;
-  setInvoices: (invoices: Invoice[]) => void;
 
   // ── UI State ────────────────────────────────────────────────────────────
   isRefreshing: boolean;
@@ -129,59 +169,61 @@ export const useAppStore = create<AppState>((set, get) => ({
           : a
       ),
     })),
+  getAgentsByRole: (role) => get().agents.filter((a) => a.role === role),
+  getColdCallers: () => get().agents.filter((a) => a.role === "cold_caller"),
 
-  // ── Clients ─────────────────────────────────────────────────────────────
-  clients: [],
-  selectedClient: null,
-  setClients: (clients) => set({ clients }),
-  addClient: (client) =>
-    set((state) => ({ clients: [...state.clients, client] })),
-  updateClient: (clientId, updates) =>
-    set((state) => ({
-      clients: state.clients.map((c) =>
-        c.id === clientId ? { ...c, ...updates } : c
-      ),
-    })),
-  setSelectedClient: (selectedClient) => set({ selectedClient }),
-
-  // ── Routes ──────────────────────────────────────────────────────────────
-  routes: [],
-  activeRoute: null,
-  setRoutes: (routes) => set({ routes }),
-  setActiveRoute: (activeRoute) => set({ activeRoute }),
-  updateRouteStop: (routeId, stopOrder, updates) =>
-    set((state) => ({
-      routes: state.routes.map((r) =>
-        r.id === routeId
-          ? {
-              ...r,
-              complexes: r.complexes.map((s) =>
-                s.order === stopOrder ? { ...s, ...updates } : s
-              ),
-            }
-          : r
-      ),
-    })),
-
-  // ── Pipeline ────────────────────────────────────────────────────────────
-  pipeline: [],
+  // ── Leads ───────────────────────────────────────────────────────────────
+  leads: [],
   selectedLead: null,
-  setPipeline: (pipeline) => set({ pipeline }),
-  addLead: (lead) =>
-    set((state) => ({ pipeline: [...state.pipeline, lead] })),
+  setLeads: (leads) => set({ leads }),
+  addLead: (lead) => set((state) => ({ leads: [...state.leads, lead] })),
   updateLead: (leadId, updates) =>
     set((state) => ({
-      pipeline: state.pipeline.map((l) =>
+      leads: state.leads.map((l) =>
         l.id === leadId ? { ...l, ...updates } : l
       ),
     })),
   setSelectedLead: (selectedLead) => set({ selectedLead }),
-  moveLeadStage: (leadId, newStage) =>
+  getLeadsByStage: (stage) => get().leads.filter((l) => l.stage === stage),
+  getLeadsByCounty: (county) =>
+    get().leads.filter((l) => l.county.toLowerCase() === county.toLowerCase()),
+  getHotLeads: () =>
+    get().leads.filter((l) => l.motivation_score && l.motivation_score >= 7),
+
+  // ── Deals ───────────────────────────────────────────────────────────────
+  deals: [],
+  selectedDeal: null,
+  setDeals: (deals) => set({ deals }),
+  addDeal: (deal) => set((state) => ({ deals: [...state.deals, deal] })),
+  updateDeal: (dealId, updates) =>
     set((state) => ({
-      pipeline: state.pipeline.map((l) =>
-        l.id === leadId ? { ...l, stage: newStage, updatedAt: new Date().toISOString() } : l
+      deals: state.deals.map((d) =>
+        d.id === dealId ? { ...d, ...updates } : d
       ),
     })),
+  setSelectedDeal: (selectedDeal) => set({ selectedDeal }),
+  getActiveDeals: () =>
+    get().deals.filter(
+      (d) => d.status === "under_contract" || d.status === "in_disposition"
+    ),
+  getPipelineValue: () =>
+    get()
+      .deals.filter((d) => d.status !== "closed" && d.status !== "dead")
+      .reduce((sum, d) => sum + (d.assignment_fee || 0), 0),
+
+  // ── Buyers ──────────────────────────────────────────────────────────────
+  buyers: [],
+  selectedBuyer: null,
+  setBuyers: (buyers) => set({ buyers }),
+  addBuyer: (buyer) => set((state) => ({ buyers: [...state.buyers, buyer] })),
+  updateBuyer: (buyerId, updates) =>
+    set((state) => ({
+      buyers: state.buyers.map((b) =>
+        b.id === buyerId ? { ...b, ...updates } : b
+      ),
+    })),
+  setSelectedBuyer: (selectedBuyer) => set({ selectedBuyer }),
+  getActiveBuyers: () => get().buyers.filter((b) => b.is_active),
 
   // ── Call Logs ───────────────────────────────────────────────────────────
   callLogs: [],
@@ -190,6 +232,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   addCallLog: (log) =>
     set((state) => ({ callLogs: [log, ...state.callLogs] })),
   setLiveCall: (liveCall) => set({ liveCall }),
+  getTodaysCalls: () => {
+    const today = new Date().toISOString().split("T")[0];
+    return get().callLogs.filter((c) => c.startTime.startsWith(today));
+  },
+  getCallsByAgent: (agentId) =>
+    get().callLogs.filter((c) => c.agentId === agentId),
 
   // ── Notifications ───────────────────────────────────────────────────────
   notifications: [],
@@ -213,13 +261,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     })),
   clearNotifications: () => set({ notifications: [], unreadCount: 0 }),
 
-  // ── Dashboard & Financials ──────────────────────────────────────────────
+  // ── Dashboard Stats ─────────────────────────────────────────────────────
   dashboardStats: null,
-  revenueMetrics: null,
-  invoices: [],
   setDashboardStats: (dashboardStats) => set({ dashboardStats }),
-  setRevenueMetrics: (revenueMetrics) => set({ revenueMetrics }),
-  setInvoices: (invoices) => set({ invoices }),
 
   // ── UI State ────────────────────────────────────────────────────────────
   isRefreshing: false,
