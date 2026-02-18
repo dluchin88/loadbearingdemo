@@ -1,14 +1,14 @@
 // app/_layout.tsx
 // ─────────────────────────────────────────────────────────────────────────────
-// QUIET HOURS VALET — Root Layout
+// TEXAS WHOLESALING — Root Layout
 //
-// This is the top-level layout for the entire app. It handles:
+// Top-level layout for the wholesaling command center app. Handles:
 // - Font loading (Clash Display + Satoshi)
 // - Splash screen management
 // - React Query provider setup
-// - Notification configuration
-// - Push token registration
+// - Push notification configuration
 // - Global theme application
+// - Agent initialization (11 AI agents)
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useEffect } from "react";
@@ -22,6 +22,7 @@ import {
   registerForPushNotifications,
 } from "../services/notifications/notificationService";
 import { useAppStore } from "../store/useAppStore";
+import { initializeAgents } from "../services/agents/vapiService";
 import { Colors } from "../constants";
 
 // Prevent splash screen from auto-hiding
@@ -32,8 +33,8 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       retry: 2,
-      staleTime: 30000,        // 30 seconds before data is considered stale
-      gcTime: 300000,           // 5 minutes before unused data is garbage collected
+      staleTime: 30000,
+      gcTime: 300000,
       refetchOnWindowFocus: true,
     },
     mutations: {
@@ -43,7 +44,7 @@ const queryClient = new QueryClient({
 });
 
 export default function RootLayout() {
-  const { setUser, setLoading } = useAppStore();
+  const { setUser, setLoading, setAgents } = useAppStore();
 
   useEffect(() => {
     async function initialize() {
@@ -66,21 +67,22 @@ export default function RootLayout() {
           // TODO: Send push token to backend for Make.com integration
         }
 
-        // ── Check authentication state ─────────────────────────────────
-        // In production, check SecureStore for saved auth tokens
-        // For now, auto-authenticate as Domonique (owner)
+        // ── Initialize 11 AI Agents ────────────────────────────────────
+        const agents = initializeAgents();
+        setAgents(agents);
+        console.log(`[INIT] Initialized ${agents.length} AI agents`);
+
+        // ── Set authenticated user (Domonique — Owner) ─────────────────
         setUser({
           id: "user_domonique",
           name: "Domonique",
-          email: "domonique@quiethoursvalet.com",
-          phone: "+1XXXXXXXXXX",
+          email: "tc@loadbearingcapital.com",
+          phone: "+13468605428",
           role: "owner",
           preferences: {
             theme: "dark",
             notificationsEnabled: true,
             dailySummaryTime: "08:00",
-            defaultMapView: "standard",
-            currency: "USD",
           },
         });
       } catch (error) {
@@ -107,7 +109,7 @@ export default function RootLayout() {
         {/* Tab Navigator (main app) */}
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
 
-        {/* Modal Screens */}
+        {/* Agent Modal Screens */}
         <Stack.Screen
           name="screens/agents/AgentDetailScreen"
           options={{
@@ -122,17 +124,31 @@ export default function RootLayout() {
             animation: "fade",
           }}
         />
+
+        {/* Lead Modal Screens */}
         <Stack.Screen
-          name="screens/clients/ClientDetailScreen"
+          name="screens/leads/LeadDetailScreen"
           options={{
             presentation: "modal",
             animation: "slide_from_bottom",
           }}
         />
+
+        {/* Deal Modal Screens */}
         <Stack.Screen
-          name="screens/routes/RouteMapScreen"
+          name="screens/deals/DealDetailScreen"
           options={{
-            presentation: "fullScreenModal",
+            presentation: "modal",
+            animation: "slide_from_bottom",
+          }}
+        />
+
+        {/* Buyer Modal Screens */}
+        <Stack.Screen
+          name="screens/buyers/BuyerDetailScreen"
+          options={{
+            presentation: "modal",
+            animation: "slide_from_bottom",
           }}
         />
       </Stack>
